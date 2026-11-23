@@ -1,0 +1,10 @@
+.build/
+.ref/
+.amp/in/
+.swiftpm/
+.DS_Store
+# Test audio is made by scripts/make-samples.sh
+*.wav
+*.aiff
+# MLX shaders are copied in by scripts/metallib.sh
+*.metallib
