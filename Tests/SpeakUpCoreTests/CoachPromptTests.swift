@@ -83,6 +83,8 @@ private let valid = """
     // and an "ask" from the middle of the talk all fail.
     #expect(check("First, a bug waited", "a customer lost data", "Monthly is slow", "QA is easier") == [false, false, false, false])
     #expect(check(nil, nil, nil, nil) == [false, false, false, false])
+    // The last sentence, but no ask in it.
+    #expect(!check(nil, nil, nil, "Thanks.")[3])
     // Signposts as a word list: each item must be in the talk.
     #expect(check(nil, nil, "First, Second", nil)[2])
     #expect(!check(nil, nil, "First, Third", nil)[2])
@@ -90,4 +92,18 @@ private let valid = """
         tips: [], challenge: "",
         checklist: .init(mainPointEarly: "we should ship weekly", concreteExample: nil, signposts: nil, closingAsk: "try it"))
     #expect(feedback.structure(in: transcript).score == 3)
+}
+
+@Test func schemaAllowsOnlyTheTalksSentencesOrNull() throws {
+    let text = #"We should ship "weekly". Monthly is slow! Is it?"#
+    let words = text.split(separator: " ").enumerated().map {
+        TimedWord(text: String($0.element), start: Double($0.offset), end: Double($0.offset) + 0.5)
+    }
+    let schema = try JSONSerialization.jsonObject(
+        with: Data(CoachPrompt.feedbackSchema(for: Transcript(text: text, words: words)).utf8)) as! [String: Any]
+    let checklist = (schema["properties"] as! [String: Any])["checklist"] as! [String: Any]
+    let answer = (checklist["properties"] as! [String: Any])["closingAsk"] as! [String: Any]
+    let allowed = answer["enum"] as! [Any]
+    #expect(allowed.compactMap { $0 as? String }.sorted() == ["Is it?", "Monthly is slow!", #"We should ship "weekly"."#])
+    #expect(allowed.contains { $0 is NSNull })
 }

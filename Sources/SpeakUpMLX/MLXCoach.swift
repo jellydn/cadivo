@@ -30,22 +30,8 @@ public final class MLXCoach: Coach {
         "llama-3.2-3b": LLMRegistry.llama3_2_3B_4bit,
     ]
 
-    /// The `CoachFeedback` shape as a JSON Schema, for guided generation.
-    static let feedbackSchema = #"""
-        {"type":"object","additionalProperties":false,"required":["tips","challenge","checklist"],
-         "properties":{
-          "tips":{"type":"array","minItems":1,"maxItems":2,"items":{"type":"object","additionalProperties":false,
-            "required":["advice","evidence"],"properties":{"advice":{"type":"string"},"evidence":{"type":"string"}}}},
-          "challenge":{"type":"string"},
-          "checklist":{"type":"object","additionalProperties":false,
-            "required":["mainPointEarly","concreteExample","signposts","closingAsk"],
-            "properties":{"mainPointEarly":{"$ref":"#/$defs/answer"},"concreteExample":{"$ref":"#/$defs/answer"},
-              "signposts":{"$ref":"#/$defs/answer"},"closingAsk":{"$ref":"#/$defs/answer"}}}},
-         "$defs":{"answer":{"anyOf":[{"type":"string"},{"type":"null"}]}}}
-        """#
-
     private let container: ModelContainer
-    /// When true, feedback is generated under a grammar built from `feedbackSchema`, so the output
+    /// When true, feedback is generated under a grammar built from `CoachPrompt.feedbackSchema(for:)`, so the output
     /// always parses. When false, the model is only asked for JSON in the prompt.
     public let guided: Bool
     private let parameters = GenerateParameters(maxTokens: 600, temperature: 0.4, topP: 0.9)
@@ -78,7 +64,7 @@ public final class MLXCoach: Coach {
             return try await generateGuided(
                 instructions: CoachPrompt.instructions,
                 prompt: CoachPrompt.feedbackPrompt(transcript: transcript, scorecard: scorecard),
-                schema: Self.feedbackSchema)
+                schema: CoachPrompt.feedbackSchema(for: transcript))
         }
         return try await generate(
             instructions: CoachPrompt.instructions,

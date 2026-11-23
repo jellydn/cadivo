@@ -43,6 +43,11 @@ extension CoachFeedback {
         "conclusion", "overall",
     ]
 
+    static let askWords: Set<String> = [
+        "let", "lets", "please", "should", "try", "ask", "propose", "suggest", "recommend", "decide", "approve",
+        "join", "need", "vote", "agree", "start",
+    ]
+
     public func structure(in transcript: Transcript) -> StructureCheck {
         let sentenceStarts = transcript.words.indices.filter { index in
             index == 0 || transcript.words[index - 1].text.last.map { ".?!".contains($0) } == true
@@ -58,6 +63,10 @@ extension CoachFeedback {
         let signpost = !signpostItems.isEmpty
             && signpostItems.allSatisfy { CoachPrompt.quoteStart($0, in: transcript) != nil }
             && !CoachFeedback.signpostWords.isDisjoint(with: CoachPrompt.tokens(checklist.signposts ?? ""))
+        // A closing ask must ask for something: "thank you" in the last sentence is no ask.
+        let askTokens = CoachPrompt.tokens(checklist.closingAsk ?? "")
+        let asks = !CoachFeedback.askWords.isDisjoint(with: askTokens)
+            || zip(askTokens, askTokens.dropFirst()).contains { $0 == "would" && $1 == "like" }
         return StructureCheck(items: [
             .init(question: "Main point in the first two sentences", quote: checklist.mainPointEarly,
                   passed: start(of: checklist.mainPointEarly).map { $0 < thirdSentence } ?? false),
@@ -65,7 +74,7 @@ extension CoachFeedback {
                   passed: start(of: checklist.concreteExample) != nil),
             .init(question: "Signposts", quote: checklist.signposts, passed: signpost),
             .init(question: "Closing ask", quote: checklist.closingAsk,
-                  passed: start(of: checklist.closingAsk).map { $0 >= lastTwo } ?? false),
+                  passed: asks && (start(of: checklist.closingAsk).map { $0 >= lastTwo } ?? false)),
         ])
     }
 }
@@ -98,9 +107,9 @@ public enum CoachPrompt {
         this talk, and says what to say instead.
         - "evidence": an exact quote of 3 to 12 words copied from the transcript that the tip is about.
         - "challenge": one short task about content or structure for the next try of the same talk.
-        - "checklist": answer each question with an exact quote of 3 to 15 words copied from the \
-        transcript that shows the answer is yes, or null when the answer is no. Do not invent quotes; \
-        null is a good answer.
+        - "checklist": answer each question with one whole sentence copied from the transcript that \
+        shows the answer is yes, or null when the answer is no. Never write "Yes" or "No" or your own \
+        words; null is a good answer.
           "mainPointEarly": Does one of the first two sentences say what the speaker wants or proposes?
           "concreteExample": Is there at least one specific example with a fact, number, name or event?
           "signposts": Does the speaker mark the order with words like "first", "second", "finally" \
@@ -130,6 +139,43 @@ public enum CoachPrompt {
 
     public static func followUpPrompt(question: String, answer: String) -> String {
         "Interview question: \(question)\nCandidate's answer: \(answer)"
+    }
+
+    /// The talk's sentences, split at ".", "?" and "!".
+    public static func sentences(_ words: [TimedWord]) -> [String] {
+        var result: [String] = []
+        var current: [String] = []
+        for word in words {
+            current.append(word.text)
+            if let last = word.text.last, ".?!".contains(last) {
+                result.append(current.joined(separator: " "))
+                current = []
+            }
+        }
+        if !current.isEmpty { result.append(current.joined(separator: " ")) }
+        return result
+    }
+
+    /// The `CoachFeedback` shape as a JSON Schema for guided generation, built for one talk: each checklist
+    /// answer must be one of the talk's sentences or null. Small models then cannot answer "Yes, the first
+    /// sentence..." or invent a quote; the grammar does not allow it.
+    public static func feedbackSchema(for transcript: Transcript) -> String {
+        let sentences = Array(Set(sentences(transcript.words))).sorted()
+        let answer: [String: Any] = ["enum": sentences + [NSNull()]]
+        func object(_ properties: [String: Any]) -> [String: Any] {
+            ["type": "object", "additionalProperties": false, "required": properties.keys.sorted(),
+             "properties": properties]
+        }
+        let tip = object(["advice": ["type": "string"], "evidence": ["type": "string"]])
+        let schema = object([
+            "tips": ["type": "array", "minItems": 1, "maxItems": 2, "items": tip],
+            "challenge": ["type": "string"],
+            "checklist": object([
+                "mainPointEarly": answer, "concreteExample": answer, "signposts": answer, "closingAsk": answer,
+            ]),
+        ])
+        let data = try! JSONSerialization.data(withJSONObject: schema, options: [.sortedKeys])
+        return String(decoding: data, as: UTF8.self)
     }
 
     /// One sentence per line, with "(pause N s)" lines where a pause ends before the next word.
