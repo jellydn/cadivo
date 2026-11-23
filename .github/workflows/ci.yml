@@ -61,3 +61,16 @@ jobs:
             -skipPackagePluginValidation \
             CODE_SIGNING_ALLOWED=NO \
             | grep -E "error:|warning: .*SpeakUpCore|BUILD (SUCCEEDED|FAILED)"
+
+      # The MLX coach: checks that mlx-swift, its Metal shaders and XGrammar compile for iPhone.
+      - name: Build SpeakUpMLX for iOS
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -scheme SpeakUpMLX \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath .build/xcode \
+            -skipMacroValidation \
+            -skipPackagePluginValidation \
+            CODE_SIGNING_ALLOWED=NO \
+            | grep -E "error:|warning: .*SpeakUpMLX|BUILD (SUCCEEDED|FAILED)"
