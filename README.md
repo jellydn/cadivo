@@ -35,8 +35,10 @@ and the coach model to `~/.cache/huggingface`.
 - `speakup`: the macOS CLI. It prints the transcript, the scorecard, the coach feedback, and timings.
 
 Measured numbers (scorecard) and LLM opinions (coach feedback) are separate types. The structure score
-is computed by the app from the LLM's checklist answers, and an answer counts only when its quote is in
-the transcript, in the right place.
+is computed by the app from the LLM's checklist answers. In guided mode the grammar lets each answer be
+only one of the talk's own sentences or null; the app then checks the sentence's position (main point in
+the first two sentences, ask in the last two) and its words (a signpost word; an asking word such as
+"let us", "please", "should", "try" for the closing ask).
 
 ## POC findings so far
 
@@ -54,16 +56,18 @@ All numbers are from an M1 Max (32 GB) and macOS `say` voices. Real human speech
 **AI coach (MLX)**
 - Apple Foundation Models was not tested: Apple Intelligence is off on the test Mac.
 - Guided JSON (MLXGuidedGeneration) makes the output always parse (60 of 60 runs) and lets it stream.
-- Qwen3 4B, guided: first token 1.0–1.4 s, full reply 2.8–4.3 s, audio file to feedback about 4–4.7 s,
+- Qwen3 4B, guided: first token 1.0–1.4 s, full reply 3.3–4.6 s, audio file to feedback about 4.8–5.1 s,
   peak memory about 3.2–3.5 GB with speech-to-text. Evidence quotes are in the transcript in almost
   every run.
-- Qwen3 1.7B, guided: first token about 0.5 s, full reply 1–2.9 s, audio file to feedback 2–4 s, peak
-  memory about 2 GB. Its content tips are generic, and it answers checklist questions with sentences
-  instead of quotes.
+- Qwen3 1.7B, guided: first token about 0.5–0.6 s, full reply 1.5–3.0 s, audio file to feedback 2.5–3.9 s,
+  peak memory about 2 GB. Its content tips are more generic than 4B's.
 - LLM 1–5 scores did not separate a good talk from a rambling one (Qwen3 4B gave 3/5 to all). A yes/no
-  checklist (main point early, concrete example, signposts, closing ask), each answered with a quote and
-  checked by the app, does: Qwen3 4B gave the good talk 5/5 in 5 of 5 runs, the 68 s talk 4/5, and the
-  rambling talk 2–3/5.
+  checklist (main point early, concrete example, signposts, closing ask) checked by the app does. With
+  answers limited to the talk's sentences or null, 5 runs per clip:
+  Qwen3 4B gave good 5/5 ×5, the 68 s talk 3/5 ×5, rambling 2–3/5;
+  Qwen3 1.7B gave good 5/5 ×4 and 4/5 ×1, the 68 s talk 3/5 ×5, rambling 2/5 ×5.
+  Known gaps: "concrete example" has no content check (a vague sentence passes), and both models miss
+  the 68 s talk's real ask ("I would like to try this for one quarter").
 - The 10 s feedback target (speech-to-text plus coach) holds on the Mac. On iPhone (estimate, not
   measured) Qwen3 1.7B should fit a 6 GB+ iPhone at about 6–10 s; Qwen3 4B needs 8 GB and would likely
   take longer than 10 s.
