@@ -35,3 +35,29 @@ jobs:
       # Unit tests only: they cover the pure metrics and coach parsing and need no models or audio.
       - name: Test
         run: ./scripts/test.sh
+
+  ios-build:
+    # Checks that SpeakUpCore (Parakeet STT, metrics, coach prompt) compiles for iPhone.
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/cache@v4
+        with:
+          path: .build/xcode
+          key: xcode-ios-${{ runner.os }}-${{ hashFiles('Package.resolved') }}
+          restore-keys: xcode-ios-${{ runner.os }}-
+
+      # A generic device build needs no simulator and no signing.
+      - name: Build SpeakUpCore for iOS
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -scheme SpeakUpCore \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath .build/xcode \
+            -skipMacroValidation \
+            -skipPackagePluginValidation \
+            CODE_SIGNING_ALLOWED=NO \
+            | grep -E "error:|warning: .*SpeakUpCore|BUILD (SUCCEEDED|FAILED)"
