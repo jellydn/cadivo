@@ -84,20 +84,35 @@ private func items(
 @Test func structureCountsOnlyRealQuotesInTheRightPlace() throws {
     let transcript = timed(
         "We should ship weekly. Monthly is slow. First, a bug waited 26 days. Second, QA is easier. Thanks. Please try it for one quarter.")
-    func check(_ main: String?, _ example: String?, _ signposts: String?) -> [Bool] {
-        items(transcript, main: main, example: example, signposts: signposts).prefix(3).map(\.passed)
+    func check(_ example: String?, _ signposts: String?) -> [Bool] {
+        items(transcript, example: example, signposts: signposts)[1...2].map(\.passed)
     }
-    #expect(check("we should ship weekly", "a bug waited 26 days", "First, a bug") == [true, true, true])
-    // A main point found only in the third sentence, an invented example, a quote with no signpost word fail.
-    #expect(check("First, a bug waited", "a customer lost data", "Monthly is slow") == [false, false, false])
-    #expect(check(nil, nil, nil) == [false, false, false])
+    #expect(check("a bug waited 26 days", "First, a bug") == [true, true])
+    // An invented example and a quote with no signpost word fail.
+    #expect(check("a customer lost data", "Monthly is slow") == [false, false])
+    #expect(check(nil, nil) == [false, false])
     // Signposts as a word list: each item must be in the talk.
-    #expect(check(nil, nil, "First, Second")[2])
-    #expect(!check(nil, nil, "First, Third")[2])
+    #expect(check(nil, "First, Second")[1])
+    #expect(!check(nil, "First, Third")[1])
     let feedback = CoachFeedback(
         tips: [], challenge: "",
         checklist: .init(mainPointEarly: "we should ship weekly", concreteExample: nil, signposts: nil, closingAsk: nil))
     #expect(feedback.structure(in: transcript).score == 3)
+}
+
+@Test func appFindsTheMainPointInTheFirstTwoSentences() {
+    // The 68 s talk's opening: the point is in the first sentence, whatever the model picks.
+    let point = "Um, so today I want to talk about, uh, why our teams should move to weekly releases."
+    let talk = timed("\(point) Right now, we ship once a month. A bug waited four weeks.")
+    let found = items(talk, main: "Right now, we ship once a month.")[0]
+    #expect(found.passed)
+    #expect(found.quote == point)
+    // The rambling talk's opening states no point; a point in the third sentence is too late.
+    let ramble = timed(
+        "So, um, yeah, releases, I was thinking about stuff, like, the bug last month. Anyway, monthly is fine for some things, I guess, it depends. We should change it.")
+    let missing = items(ramble, main: "So, um, yeah, releases, I was thinking about stuff, like, the bug last month.")[0]
+    #expect(!missing.passed)
+    #expect(missing.quote == "So, um, yeah, releases, I was thinking about stuff, like, the bug last month.")
 }
 
 @Test func appFindsTheClosingAskInTheLastTwoSentences() {

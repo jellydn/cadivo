@@ -60,6 +60,16 @@ extension CoachFeedback {
         "pm", "minute", "minutes", "hour", "hours",
     ]
 
+    /// Words that state a point or a proposal. "think" is left out: "I was thinking about stuff" states nothing.
+    static let mainPointWords: Set<String> = [
+        "should", "propose", "proposal", "suggest", "recommend", "must", "need", "want", "believe", "argue",
+        "point", "goal",
+    ]
+
+    static func statesPoint(_ text: String) -> Bool {
+        !mainPointWords.isDisjoint(with: CoachPrompt.tokens(text))
+    }
+
     static func asks(_ text: String) -> Bool {
         let tokens = CoachPrompt.tokens(text)
         return !askWords.isDisjoint(with: tokens)
@@ -86,8 +96,10 @@ extension CoachFeedback {
         func sentence(of quote: String?) -> [TimedWord]? {
             start(of: quote).flatMap { time in sentences.last { $0[0].start <= time } }
         }
-        // The main point must start before the third sentence.
-        let thirdSentence = sentences.count > 2 ? sentences[2][0].start : .infinity
+        func text(_ sentence: [TimedWord]) -> String { sentence.map(\.text).joined(separator: " ") }
+        // The app finds the main point itself: the first of the first two sentences that states a point or
+        // proposal. A vague opening ("I was thinking about stuff") does not count, whatever the model picks.
+        let mainPoint = sentences.prefix(2).map(text).first(where: CoachFeedback.statesPoint)
         // Signposts are words, not one phrase: a list such as "First, Second, to sum up" counts when every
         // item is in the talk. A contiguous quote ("First, a bug waited") passes the same check.
         let signpostItems = (checklist.signposts ?? "").split(separator: ",").map(String.init)
@@ -97,12 +109,10 @@ extension CoachFeedback {
             && !CoachFeedback.signpostWords.isDisjoint(with: CoachPrompt.tokens(checklist.signposts ?? ""))
         // The app finds the closing ask itself: the later of the last two sentences with an asking word.
         // The model often picks "thank you" at the very end and misses the ask just before it.
-        let ask = sentences.suffix(2).reversed()
-            .map { $0.map(\.text).joined(separator: " ") }
-            .first(where: CoachFeedback.asks)
+        let ask = sentences.suffix(2).reversed().map(text).first(where: CoachFeedback.asks)
         return StructureCheck(items: [
-            .init(question: "Main point in the first two sentences", quote: checklist.mainPointEarly,
-                  passed: start(of: checklist.mainPointEarly).map { $0 < thirdSentence } ?? false),
+            .init(question: "Main point in the first two sentences", quote: mainPoint ?? checklist.mainPointEarly,
+                  passed: mainPoint != nil),
             .init(question: "At least one concrete example", quote: checklist.concreteExample,
                   passed: sentence(of: checklist.concreteExample).map(CoachFeedback.isConcrete) ?? false),
             .init(question: "Signposts", quote: checklist.signposts, passed: signpost),
