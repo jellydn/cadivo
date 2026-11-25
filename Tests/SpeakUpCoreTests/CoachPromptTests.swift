@@ -65,33 +65,68 @@ private let valid = """
     #expect(text == "That is too slow.\n(pause 1.8 s)\nSo here,\n(pause 0.9 s)\num, it")
 }
 
-@Test func structureCountsOnlyRealQuotesInTheRightPlace() throws {
-    let text = "We should ship weekly. Monthly is slow. First, a bug waited 26 days. Second, QA is easier. Thanks. Please try it for one quarter."
-    let words = text.split(separator: " ").enumerated().map {
+private func timed(_ text: String) -> Transcript {
+    Transcript(text: text, words: text.split(separator: " ").enumerated().map {
         TimedWord(text: String($0.element), start: Double($0.offset), end: Double($0.offset) + 0.5)
+    })
+}
+
+private func items(
+    _ transcript: Transcript, main: String? = nil, example: String? = nil, signposts: String? = nil,
+    ask: String? = nil
+) -> [StructureCheck.Item] {
+    CoachFeedback(
+        tips: [], challenge: "",
+        checklist: .init(mainPointEarly: main, concreteExample: example, signposts: signposts, closingAsk: ask)
+    ).structure(in: transcript).items
+}
+
+@Test func structureCountsOnlyRealQuotesInTheRightPlace() throws {
+    let transcript = timed(
+        "We should ship weekly. Monthly is slow. First, a bug waited 26 days. Second, QA is easier. Thanks. Please try it for one quarter.")
+    func check(_ main: String?, _ example: String?, _ signposts: String?) -> [Bool] {
+        items(transcript, main: main, example: example, signposts: signposts).prefix(3).map(\.passed)
     }
-    let transcript = Transcript(text: text, words: words)
-    func check(_ main: String?, _ example: String?, _ signposts: String?, _ ask: String?) -> [Bool] {
-        let feedback = CoachFeedback(
-            tips: [], challenge: "",
-            checklist: .init(mainPointEarly: main, concreteExample: example, signposts: signposts, closingAsk: ask))
-        return feedback.structure(in: transcript).items.map(\.passed)
-    }
-    #expect(check("we should ship weekly", "a bug waited 26 days", "First, a bug", "please try it for one quarter")
-        == [true, true, true, true])
-    // A main point found only in the third sentence, an invented example, a quote with no signpost word,
-    // and an "ask" from the middle of the talk all fail.
-    #expect(check("First, a bug waited", "a customer lost data", "Monthly is slow", "QA is easier") == [false, false, false, false])
-    #expect(check(nil, nil, nil, nil) == [false, false, false, false])
-    // The last sentence, but no ask in it.
-    #expect(!check(nil, nil, nil, "Thanks.")[3])
+    #expect(check("we should ship weekly", "a bug waited 26 days", "First, a bug") == [true, true, true])
+    // A main point found only in the third sentence, an invented example, a quote with no signpost word fail.
+    #expect(check("First, a bug waited", "a customer lost data", "Monthly is slow") == [false, false, false])
+    #expect(check(nil, nil, nil) == [false, false, false])
     // Signposts as a word list: each item must be in the talk.
-    #expect(check(nil, nil, "First, Second", nil)[2])
-    #expect(!check(nil, nil, "First, Third", nil)[2])
+    #expect(check(nil, nil, "First, Second")[2])
+    #expect(!check(nil, nil, "First, Third")[2])
     let feedback = CoachFeedback(
         tips: [], challenge: "",
-        checklist: .init(mainPointEarly: "we should ship weekly", concreteExample: nil, signposts: nil, closingAsk: "try it"))
+        checklist: .init(mainPointEarly: "we should ship weekly", concreteExample: nil, signposts: nil, closingAsk: nil))
     #expect(feedback.structure(in: transcript).score == 3)
+}
+
+@Test func appFindsTheClosingAskInTheLastTwoSentences() {
+    // The 68 s talk's ending: the model picks "thank you", the ask is the sentence before it.
+    let ask = "Um, I would like to try this for one quarter, and then, uh, we look at the numbers together."
+    let thanks = "I think, um, it will make all of us calmer, thank you."
+    let talk = timed("So here is my plan. We cut a release every Thursday. \(ask) \(thanks)")
+    let found = items(talk, ask: thanks)[3]
+    #expect(found.passed)
+    #expect(found.quote == ask)
+    // An ask earlier in the talk does not count, and neither does a model answer without an asking word.
+    let noAsk = timed(
+        "Please try it. Some teams do it differently. I mean, we could change stuff, or not, I do not know, okay, that is it, I think.")
+    #expect(!items(noAsk, ask: "Please try it.")[3].passed)
+    #expect(!items(noAsk, ask: "Some teams do it differently.")[3].passed)
+}
+
+@Test func concreteExampleNeedsANumberTimeOrName() {
+    let vague = "I mean, we could change stuff, or not, I do not know, there are a lot of things to think about, okay, that is it, I think."
+    let talk = timed(
+        "\(vague) A customer reports a bug on Monday, and they get the fix later. We met Sarah at lunch. It took two weeks. It was really bad.")
+    func passes(_ quote: String) -> Bool { items(talk, example: quote)[1].passed }
+    #expect(!passes("we could change stuff, or not, I do not know"))
+    #expect(!passes("It was really bad."))
+    #expect(passes("A customer reports a bug on Monday"))
+    #expect(passes("We met Sarah at lunch."))
+    #expect(passes("It took two weeks."))
+    // The check uses the whole sentence the quote is in, so a short quote from it is enough.
+    #expect(passes("they get the fix later"))
 }
 
 @Test func schemaAllowsOnlyTheTalksSentencesOrNull() throws {

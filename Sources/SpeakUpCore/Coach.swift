@@ -48,14 +48,46 @@ extension CoachFeedback {
         "join", "need", "vote", "agree", "start",
     ]
 
+    /// Words that make an example concrete besides digits and names: number words ("one" is left out, it
+    /// is mostly not a count), days, months ("may" is left out, it is mostly a verb) and clock words.
+    static let concreteWords: Set<String> = [
+        "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "thirteen",
+        "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen", "twenty", "thirty", "forty",
+        "fifty", "sixty", "seventy", "eighty", "ninety", "hundred", "thousand", "million", "billion", "dozen",
+        "percent", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday", "january",
+        "february", "march", "april", "june", "july", "august", "september", "october", "november", "december",
+        "today", "yesterday", "tomorrow", "tonight", "morning", "afternoon", "evening", "noon", "midnight",
+        "pm", "minute", "minutes", "hour", "hours",
+    ]
+
+    static func asks(_ text: String) -> Bool {
+        let tokens = CoachPrompt.tokens(text)
+        return !askWords.isDisjoint(with: tokens)
+            || zip(tokens, tokens.dropFirst()).contains { $0 == "would" && $1 == "like" }
+    }
+
+    /// True when the sentence has a number, a day, month or clock word, or a name: a capitalized word that
+    /// does not start the sentence and is not "I".
+    static func isConcrete(_ sentence: [TimedWord]) -> Bool {
+        sentence.enumerated().contains { index, word in
+            let tokens = CoachPrompt.tokens(word.text)
+            if tokens.contains(where: { $0.first?.isNumber == true }) || !concreteWords.isDisjoint(with: tokens) {
+                return true
+            }
+            let letters = word.text.trimmingCharacters(in: .punctuationCharacters)
+            return index > 0 && letters.first?.isUppercase == true && tokens.first != "i"
+        }
+    }
+
     public func structure(in transcript: Transcript) -> StructureCheck {
-        let sentenceStarts = transcript.words.indices.filter { index in
-            index == 0 || transcript.words[index - 1].text.last.map { ".?!".contains($0) } == true
-        }.map { transcript.words[$0].start }
+        let sentences = CoachPrompt.sentenceWords(transcript.words)
         func start(of quote: String?) -> TimeInterval? { quote.flatMap { CoachPrompt.quoteStart($0, in: transcript) } }
-        // The main point must start before the third sentence; the ask in the last two sentences.
-        let thirdSentence = sentenceStarts.count > 2 ? sentenceStarts[2] : .infinity
-        let lastTwo = sentenceStarts.count >= 2 ? sentenceStarts[sentenceStarts.count - 2] : 0
+        /// The sentence a quote starts in.
+        func sentence(of quote: String?) -> [TimedWord]? {
+            start(of: quote).flatMap { time in sentences.last { $0[0].start <= time } }
+        }
+        // The main point must start before the third sentence.
+        let thirdSentence = sentences.count > 2 ? sentences[2][0].start : .infinity
         // Signposts are words, not one phrase: a list such as "First, Second, to sum up" counts when every
         // item is in the talk. A contiguous quote ("First, a bug waited") passes the same check.
         let signpostItems = (checklist.signposts ?? "").split(separator: ",").map(String.init)
@@ -63,18 +95,18 @@ extension CoachFeedback {
         let signpost = !signpostItems.isEmpty
             && signpostItems.allSatisfy { CoachPrompt.quoteStart($0, in: transcript) != nil }
             && !CoachFeedback.signpostWords.isDisjoint(with: CoachPrompt.tokens(checklist.signposts ?? ""))
-        // A closing ask must ask for something: "thank you" in the last sentence is no ask.
-        let askTokens = CoachPrompt.tokens(checklist.closingAsk ?? "")
-        let asks = !CoachFeedback.askWords.isDisjoint(with: askTokens)
-            || zip(askTokens, askTokens.dropFirst()).contains { $0 == "would" && $1 == "like" }
+        // The app finds the closing ask itself: the later of the last two sentences with an asking word.
+        // The model often picks "thank you" at the very end and misses the ask just before it.
+        let ask = sentences.suffix(2).reversed()
+            .map { $0.map(\.text).joined(separator: " ") }
+            .first(where: CoachFeedback.asks)
         return StructureCheck(items: [
             .init(question: "Main point in the first two sentences", quote: checklist.mainPointEarly,
                   passed: start(of: checklist.mainPointEarly).map { $0 < thirdSentence } ?? false),
             .init(question: "At least one concrete example", quote: checklist.concreteExample,
-                  passed: start(of: checklist.concreteExample) != nil),
+                  passed: sentence(of: checklist.concreteExample).map(CoachFeedback.isConcrete) ?? false),
             .init(question: "Signposts", quote: checklist.signposts, passed: signpost),
-            .init(question: "Closing ask", quote: checklist.closingAsk,
-                  passed: asks && (start(of: checklist.closingAsk).map { $0 >= lastTwo } ?? false)),
+            .init(question: "Closing ask", quote: ask ?? checklist.closingAsk, passed: ask != nil),
         ])
     }
 }
@@ -143,16 +175,20 @@ public enum CoachPrompt {
 
     /// The talk's sentences, split at ".", "?" and "!".
     public static func sentences(_ words: [TimedWord]) -> [String] {
-        var result: [String] = []
-        var current: [String] = []
+        sentenceWords(words).map { $0.map(\.text).joined(separator: " ") }
+    }
+
+    static func sentenceWords(_ words: [TimedWord]) -> [[TimedWord]] {
+        var result: [[TimedWord]] = []
+        var current: [TimedWord] = []
         for word in words {
-            current.append(word.text)
+            current.append(word)
             if let last = word.text.last, ".?!".contains(last) {
-                result.append(current.joined(separator: " "))
+                result.append(current)
                 current = []
             }
         }
-        if !current.isEmpty { result.append(current.joined(separator: " ")) }
+        if !current.isEmpty { result.append(current) }
         return result
     }
 
